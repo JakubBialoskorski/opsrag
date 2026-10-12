@@ -3,6 +3,7 @@ name: models-update
 # Every Friday: check whether the Ollama registry serves new versions of our models. If so,
 # download them, run the answer checks and open a pull request with the new models.lock.yaml.
 # If the new version fails the checks, this run fails and no pull request is opened.
+# A model that needs a newer Ollama fails here until Dependabot's bump of the image is merged.
 # Needs "Allow GitHub Actions to create and approve pull requests" in the repo settings.
 on:
   schedule:
@@ -41,8 +42,9 @@ jobs:
       - name: Start Postgres and Ollama
         run: |
           docker compose up -d --wait db
-          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama:0.40.3
-          until curl -sf localhost:11434/api/version; do sleep 1; done
+          image="$(docker compose --profile ollama config --images ollama)"
+          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" "$image"
+          timeout 60 bash -c 'until curl -sf localhost:11434/api/version; do sleep 1; done'
       - id: update
         name: Look for new model versions, test them
         run: |

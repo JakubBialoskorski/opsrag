@@ -20,6 +20,12 @@ jobs:
       - run: uv run pytest -q
       - run: node --test tests/*.test.mjs
       - run: bash -n start.sh && bash -n stop.sh
+      # Workflows read the Ollama image from docker-compose.yml, where it's pinned by tag and digest
+      - name: Ollama image pinned in one place
+        run: |
+          docker compose --profile ollama config --images ollama \
+            | grep -Eq '^ollama/ollama:[0-9.]+@sha256:[0-9a-f]{64}$'
+          ! grep -rn 'ollama/ollama:[0-9]' .github start.sh
 
   quality:
     needs: lint-test

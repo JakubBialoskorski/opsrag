@@ -34,22 +34,27 @@ jobs:
           path: ~/ollama
           key: ollama-${{ hashFiles('models.lock.yaml') }}
       - name: Start Postgres and Ollama
+        id: ollama
         run: |
           docker compose up -d --wait db
-          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama:0.40.3
+          image="$(docker compose --profile ollama config --images ollama)"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" "$image"
+          timeout 60 bash -c 'until curl -sf localhost:11434/api/version; do sleep 1; done'
       - name: Build the image
         run: docker build -t opsrag:ci .
       # Answers on the demo compete with thousands of Kubernetes chunks: with only the Helm and
       # Prometheus docs "rate irate" passed with 4 chunks in the prompt but was refused on the
       # full index. When the docs or models changed, the newest older index is restored and
-      # setup embeds only the documents that changed.
+      # setup embeds only the documents that changed. Another Ollama version can embed a bit
+      # differently, so only an index embedded by the same image is restored.
       - name: Restore the index
         id: index
         uses: actions/cache/restore@v6
         with:
           path: index.dump
-          key: index-${{ hashFiles('sources.lock.yaml', 'models.lock.yaml') }}
-          restore-keys: index-
+          key: index-${{ steps.ollama.outputs.image }}-${{ hashFiles('sources.lock.yaml', 'models.lock.yaml') }}
+          restore-keys: index-${{ steps.ollama.outputs.image }}-
       - name: Load the index
         if: steps.index.outputs.cache-matched-key != ''
         run: |
@@ -71,7 +76,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: index.dump
-          key: index-${{ hashFiles('sources.lock.yaml', 'models.lock.yaml') }}
+          key: index-${{ steps.ollama.outputs.image }}-${{ hashFiles('sources.lock.yaml', 'models.lock.yaml') }}
       - name: Retrieval checks on all questions
         run: |
           docker run --rm --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data opsrag:ci \

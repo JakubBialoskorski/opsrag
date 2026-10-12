@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # A pull request for every new Ollama release, ci.yml runs the answer checks on it
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: friday
+    allow:
+      - dependency-name: ollama/ollama
+    commit-message:
+      prefix: "[chore]"
