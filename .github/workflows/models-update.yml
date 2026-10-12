@@ -41,7 +41,7 @@ jobs:
       - name: Start Postgres and Ollama
         run: |
           docker compose up -d --wait db
-          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama
+          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama:0.40.3
           until curl -sf localhost:11434/api/version; do sleep 1; done
       - id: update
         name: Look for new model versions, test them

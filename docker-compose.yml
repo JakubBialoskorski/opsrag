@@ -60,7 +60,7 @@ services:
 
   # Used when Ollama isn't installed on the host (COMPOSE_PROFILES=ollama, set by start.sh on Linux)
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:0.40.3
     profiles: [ollama]
     restart: unless-stopped
     environment:
