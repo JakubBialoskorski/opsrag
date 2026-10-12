@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from opsrag.answer import NOT_FOUND
 from opsrag.config import Settings
@@ -71,3 +72,32 @@ def test_known_issues_are_reported_but_never_fail(tmp_path, monkeypatch):
     lines = []
     assert run_checks(None, None, settings, [case], answers=True, log=lines.append)
     assert any("passes now" in line for line in lines)
+
+
+def test_failed_answers_are_retried_with_other_seeds(tmp_path, monkeypatch):
+    monkeypatch.setattr("opsrag.evaluate.rerank.load", lambda settings: object())
+    monkeypatch.setattr("opsrag.evaluate.score_retrieval", lambda *a: RetrievalScore("x", 1, 1))
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    ollama = SimpleNamespace(seed=42)
+    case = Case("rate irate", ["prometheus:a.md"])
+
+    # Fails only with the default seed: noise, the run passes
+    seeds = []
+
+    def flaky(conn, ollama, settings, case):
+        seeds.append(ollama.seed)
+        return "answer cites no sources" if ollama.seed == 42 else None
+
+    monkeypatch.setattr("opsrag.evaluate.check_answer", flaky)
+    lines = []
+    assert run_checks(None, ollama, settings, [case], answers=True, log=lines.append)
+    assert seeds == [42, 43]
+    assert any(line.startswith("flaky") for line in lines)
+    assert ollama.seed == 42
+
+    # Fails with every seed: a real regression, the run fails
+    monkeypatch.setattr("opsrag.evaluate.check_answer", lambda *a: "answer cites no sources")
+    lines = []
+    assert not run_checks(None, ollama, settings, [case], answers=True, log=lines.append)
+    assert any(line.startswith("FAIL") for line in lines)
+    assert ollama.seed == 42

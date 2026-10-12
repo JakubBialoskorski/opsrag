@@ -110,6 +110,8 @@ class Ollama:
         self.embed_model = embed_model
         self.chat_model = chat_model
         self.num_ctx = num_ctx
+        # A fixed seed makes answers repeatable, which keeps the CI checks stable
+        self.seed = 42
         # Generous read timeout: the first request loads the model into memory
         self.http = httpx.Client(base_url=url, timeout=httpx.Timeout(10, read=300))
 
@@ -199,13 +201,12 @@ class Ollama:
             "stream": True,
             # Skip the "reasoning" phase of models like qwen3, it's slow on a laptop
             "think": False,
-            # num_predict caps the answer length so it always fits in the context window,
-            # a fixed seed makes answers repeatable, which keeps the CI checks stable
+            # num_predict caps the answer length so it always fits in the context window
             "options": {
                 "num_ctx": self.num_ctx,
                 "num_predict": 512,
                 "temperature": 0.1,
-                "seed": 42,
+                "seed": self.seed,
             },
         }
         try:
