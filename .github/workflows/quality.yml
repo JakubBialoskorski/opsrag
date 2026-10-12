@@ -1,0 +1,99 @@
+name: quality
+
+# Behaviour checks against the built image, with real models and the full index of all docs.
+# Every bug found in answers or links gets a check here (see eval/smoke.yaml).
+# Used by ci.yml before an image is pushed, and by the weekly update workflows.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch to check, defaults to the one that triggered the run
+        type: string
+        default: ""
+      check-links:
+        description: Also check that every source link opens on the live docs sites
+        type: boolean
+        default: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    # The first run embeds the Kubernetes docs on the runner's CPU (well over an hour),
+    # later runs restore the cached index and only embed what changed
+    timeout-minutes: 180
+    env:
+      DATABASE_URL: postgresql://opsrag:opsrag@localhost:5432/opsrag
+      OLLAMA_URL: http://localhost:11434
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Cache Ollama models
+        uses: actions/cache@v6
+        with:
+          path: ~/ollama
+          key: ollama-${{ hashFiles('models.lock.yaml') }}
+      - name: Start Postgres and Ollama
+        run: |
+          docker compose up -d --wait db
+          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama
+      - name: Build the image
+        run: docker build -t opsrag:ci .
+      # Answers on the demo compete with thousands of Kubernetes chunks: with only the Helm and
+      # Prometheus docs "rate irate" passed with 4 chunks in the prompt but was refused on the
+      # full index. When the docs or models changed, the newest older index is restored and
+      # setup embeds only the documents that changed.
+      - name: Restore the index
+        id: index
+        uses: actions/cache/restore@v6
+        with:
+          path: index.dump
+          key: index-${{ hashFiles('sources.lock.yaml', 'models.lock.yaml') }}
+          restore-keys: index-
+      - name: Load the index
+        if: steps.index.outputs.cache-matched-key != ''
+        run: |
+          docker compose exec -T db pg_restore -U opsrag -d opsrag --clean --if-exists \
+            --no-owner --single-transaction < index.dump
+      # The data volume keeps the reranker downloaded by setup for the following steps
+      - name: Download models, index all docs
+        run: |
+          docker run --rm --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data opsrag:ci \
+            opsrag setup
+      # Saved before the checks, so a failing check doesn't cost the next run the embedding
+      - name: Dump the index
+        if: steps.index.outputs.cache-hit != 'true'
+        run: |
+          docker compose exec -T db pg_dump -U opsrag -d opsrag -Fc \
+            -t documents -t chunks -t meta > index.dump
+      - name: Save the index
+        if: steps.index.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: index.dump
+          key: index-${{ hashFiles('sources.lock.yaml', 'models.lock.yaml') }}
+      - name: Retrieval checks on all questions
+        run: |
+          docker run --rm --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data opsrag:ci \
+            opsrag eval --min-hit-rate 0.97
+      - name: Retrieval and answer checks
+        run: |
+          docker run --rm --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data opsrag:ci \
+            opsrag eval --questions eval/smoke.yaml --answers --min-hit-rate 1.0
+      - name: Every source link opens
+        if: inputs.check-links
+        run: docker run --rm opsrag:ci opsrag check-links
+      - name: Web app answers
+        run: |
+          docker run -d --name app --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data \
+            opsrag:ci
+          for i in $(seq 30); do curl -sf localhost:8000/healthz && break; sleep 2; done
+          ask() { curl -sN "$@" -X POST localhost:8000/api/ask -H 'content-type: application/json' \
+            -d '{"question": "helm hooks"}'; }
+          curl -sf localhost:8000/api/status | grep -q '"ollama":"ok"'
+          curl -sf localhost:8000/api/status | grep -q '"reranker":"ok"'
+          curl -sfI localhost:8000/static/render.mjs | grep -qi '^content-type: text/javascript'
+          ask -f | grep -q '"type": "done"'
+      - name: Logs on failure
+        if: failure()
+        run: docker logs app || true

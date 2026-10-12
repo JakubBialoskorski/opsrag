@@ -1,0 +1,11 @@
+# NVIDIA GPU for the Ollama container. start.sh adds this file when Docker has the
+# NVIDIA runtime (nvidia-container-toolkit) installed.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,0 +1,81 @@
+# Start everything with ./start.sh, it picks the right Ollama setup and writes .env.
+
+# Fixed project name, so containers and volumes don't depend on the clone's directory name
+name: opsrag
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    # The index can always be rebuilt, so trade crash durability for fewer disk writes:
+    # no fsync per commit, compressed WAL, rarer checkpoints (fewer full-page writes)
+    command: >
+      postgres
+      -c synchronous_commit=off
+      -c wal_compression=on
+      -c max_wal_size=1GB
+      -c checkpoint_timeout=15min
+    environment:
+      POSTGRES_USER: opsrag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opsrag}
+      POSTGRES_DB: opsrag
+    # Only reachable from this machine, the web app is what gets exposed to the network
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsrag -d opsrag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    image: ghcr.io/jakubbialoskorski/opsrag:latest
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${OPSRAG_BIND:-127.0.0.1}:${OPSRAG_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://opsrag:${POSTGRES_PASSWORD:-opsrag}@db:5432/opsrag
+      OLLAMA_URL: ${DOCKER_OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - docs:/app/data
+      # Mounted so `make update` / `make update-models` update the lock files in this repo
+      - ./sources.yaml:/app/sources.yaml:ro
+      - ./sources.lock.yaml:/app/sources.lock.yaml
+      - ./models.lock.yaml:/app/models.lock.yaml
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+        required: false
+
+  # Used when Ollama isn't installed on the host (COMPOSE_PROFILES=ollama, set by start.sh on Linux)
+  ollama:
+    image: ollama/ollama
+    profiles: [ollama]
+    restart: unless-stopped
+    environment:
+      # The app sends one question at a time, keep both models loaded between questions
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_KEEP_ALIVE: "-1"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
+  docs:
+  ollama:

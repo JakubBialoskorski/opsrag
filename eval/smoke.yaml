@@ -1,0 +1,44 @@
+# Small question set whose answers are checked in CI on every change, before the image is
+# pushed. Answers take minutes each on a CPU-only runner, so only Helm and Prometheus questions,
+# asked against the full index.
+# Every behaviour bug that gets fixed should add a case here.
+
+# Full questions
+- question: How do I override values of a subchart from the parent chart?
+  expected: [helm:chart_template_guide/subcharts_and_globals.md]
+- question: How do I make an alert fire only after the condition is true for 5 minutes?
+  expected: [prometheus:configuration/alerting_rules.md]
+- question: How do I roll back a Helm release to a previous revision?
+  expected: [helm:helm/helm_rollback.md]
+
+# Just keywords: these used to be refused although the docs had the answer
+- question: helm hooks
+  expected: [helm:topics/charts_hooks.md]
+- question: rate irate
+  expected: [prometheus:querying/functions.md]
+- question: recording rules
+  expected: [prometheus:configuration/recording_rules.md]
+
+# Answers checked for the right syntax: these were answered wrong with made-up config
+- question: How do I query the value a metric had one hour ago?
+  expected: [prometheus:querying/basics.md]
+  must_include: [offset]
+- question: How do I restart pods automatically when a ConfigMap in my chart changes?
+  expected: [helm:howto/charts_tips_and_tricks.md]
+  must_include: [sha256sum]
+- question: How do I run a database migration job before a chart is installed or upgraded?
+  expected: [helm:topics/charts_hooks.md]
+  must_include: [helm.sh/hook]
+  known_issue: the chunk with the hook annotation doesn't reach the prompt
+- question: How do I drop a label from scraped metrics with relabeling?
+  expected: [prometheus:configuration/configuration.md]
+  must_include: [labeldrop]
+  known_issue: the labeldrop action description doesn't reach the prompt
+
+# Out of scope: must be refused, not answered from the model's own knowledge
+- question: What is the capital of France?
+  expected: []
+- question: pancakes
+  expected: []
+- question: How do I set up VPC peering between two AWS accounts?
+  expected: []

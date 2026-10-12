@@ -1,0 +1,150 @@
+# Each question lists documents ("source:path") that contain the answer.
+# Retrieval counts as a hit if any of them shows up in the top results.
+# Questions with no expected documents are out of scope: the assistant should refuse them.
+# must_include: syntax a correct answer has to contain. known_issue: reported, not failing.
+
+# Kubernetes
+- question: How do I roll back a Deployment to a previous revision?
+  expected: [kubernetes:concepts/workloads/controllers/deployment.md]
+- question: What is the difference between liveness, readiness and startup probes?
+  expected:
+    - kubernetes:concepts/workloads/pods/probes.md
+    - kubernetes:tasks/configure-pod-container/configure-liveness-readiness-startup-probes.md
+- question: How can I limit how many pods of my app are down during a node drain?
+  expected:
+    - kubernetes:concepts/workloads/pods/disruptions.md
+    - kubernetes:tasks/run-application/configure-pdb.md
+    - kubernetes:tasks/administer-cluster/safely-drain-node.md
+- question: How do I safely drain a node before maintenance?
+  expected: [kubernetes:tasks/administer-cluster/safely-drain-node.md]
+- question: What does a pod need to get the Guaranteed QoS class?
+  expected:
+    - kubernetes:concepts/workloads/pods/pod-qos.md
+    - kubernetes:tasks/configure-pod-container/quality-service-pod.md
+- question: How do I mount a Secret as files inside a container?
+  expected:
+    - kubernetes:concepts/configuration/secret.md
+    - kubernetes:tasks/inject-data-application/distribute-credentials-secure.md
+- question: How do I prevent pods from being scheduled on a specific node?
+  expected: [kubernetes:concepts/scheduling-eviction/taint-and-toleration.md]
+  must_include: [taint]
+- question: How does the HorizontalPodAutoscaler calculate the desired number of replicas?
+  expected:
+    - kubernetes:concepts/workloads/autoscaling/horizontal-pod-autoscale.md
+    - kubernetes:tasks/run-application/horizontal-pod-autoscale-walkthrough.md
+- question: What is the difference between ClusterIP, NodePort and LoadBalancer services?
+  expected:
+    - kubernetes:concepts/services-networking/service.md
+    - kubernetes:tutorials/kubernetes-basics/expose/expose-intro.md
+- question: How do I allow ingress traffic to a pod only from pods with a specific label?
+  expected: [kubernetes:concepts/services-networking/network-policies.md]
+- question: How do I back up an etcd cluster?
+  expected: [kubernetes:tasks/administer-cluster/configure-upgrade-etcd.md]
+- question: What happens to a PersistentVolume when its claim is deleted?
+  expected: [kubernetes:concepts/storage/persistent-volumes.md]
+- question: How do I run a workload with stable network identities and ordered startup?
+  expected: [kubernetes:concepts/workloads/controllers/statefulset.md]
+- question: How do I run a job every night at 2 AM?
+  expected: [kubernetes:concepts/workloads/controllers/cron-jobs.md]
+- question: My pod is stuck in Pending, how do I debug it?
+  expected: [kubernetes:tasks/debug/debug-application/debug-pods.md]
+- question: How do I see logs of the previous instance of a crashed container?
+  expected:
+    - kubernetes:reference/kubectl/quick-reference.md
+    - kubernetes:tasks/debug/debug-application/debug-running-pod.md
+- question: You scale a StatefulSet down from 3 to 1. What happens to the PersistentVolumeClaims of the removed Pods?
+  expected:
+    - kubernetes:concepts/workloads/controllers/statefulset.md
+    - kubernetes:tutorials/stateful-application/basic-stateful-set.md
+  # web-2 and web-1 go away
+  must_include: [web-1]
+  known_issue: the answer makes up a web-3 and contradicts itself about the retention policy
+- question: Should your liveness probe check the database connection?
+  expected: [kubernetes:concepts/workloads/pods/probes.md]
+  must_include: [readiness]
+  known_issue: refused although the back-end services advice is in the prompt
+- question: What are the QoS classes, and what QoS class does a Pod get if it sets only limits?
+  expected:
+    - kubernetes:tasks/configure-pod-container/quality-service-pod.md
+    - kubernetes:concepts/configuration/manage-resources-containers.md
+    - kubernetes:concepts/workloads/pods/pod-qos.md
+- question: What is the difference between `kubectl cordon` and `kubectl drain`?
+  expected:
+    - kubernetes:tasks/administer-cluster/safely-drain-node.md
+    - kubernetes:concepts/architecture/nodes.md
+    - kubernetes:reference/kubectl/quick-reference.md
+    - kubernetes:reference/glossary/drain.md
+  must_include: [unschedulable]
+
+# Prometheus
+- question: What is the difference between rate() and irate()?
+  expected: [prometheus:querying/functions.md]
+- question: How do I calculate the 95th percentile latency from a histogram?
+  expected: [prometheus:querying/functions.md]
+- question: How do I make an alert fire only after the condition is true for 5 minutes?
+  expected: [prometheus:configuration/alerting_rules.md]
+- question: What are recording rules and how do I define one?
+  expected: [prometheus:configuration/recording_rules.md]
+- question: How can I unit test my alerting rules?
+  expected: [prometheus:configuration/unit_testing_rules.md]
+- question: How long does Prometheus keep data and how do I change retention?
+  expected: [prometheus:storage.md]
+- question: How do I drop a label from scraped metrics with relabeling?
+  expected: [prometheus:configuration/configuration.md]
+  must_include: [labeldrop]
+  known_issue: the labeldrop action description doesn't reach the prompt
+- question: How do I reload the Prometheus configuration without restarting it?
+  expected:
+    - prometheus:configuration/configuration.md
+    - prometheus:management_api.md
+- question: What is Prometheus agent mode?
+  expected: [prometheus:prometheus_agent.md]
+- question: How do I query the value a metric had one hour ago?
+  expected: [prometheus:querying/basics.md]
+  must_include: [offset]
+- question: What is the difference between an instant vector and a range vector? Why does `rate(http_requests_total)` fail?
+  expected: [prometheus:querying/basics.md]
+  must_include: [range vector]
+  known_issue: refused, the chunks about vector types don't reach the prompt
+- question: Write a query for the 95th percentile latency across all instances of a service.
+  expected: [prometheus:querying/functions.md]
+  must_include: [histogram_quantile, le]
+  known_issue: refused although the histogram_quantile() chunk is first in the prompt
+- question: How does service discovery feed into relabeling? How would you scrape only pods annotated `prometheus.io/scrape=true`?
+  expected: [prometheus:configuration/configuration.md]
+  must_include: [__meta_kubernetes_pod_annotation]
+  known_issue: refused, the kubernetes_sd_config labels don't reach the prompt
+
+# Helm
+- question: How do I override values of a subchart from the parent chart?
+  expected: [helm:chart_template_guide/subcharts_and_globals.md]
+- question: How do I run a database migration job before a chart is installed or upgraded?
+  expected: [helm:topics/charts_hooks.md]
+  must_include: [helm.sh/hook]
+  known_issue: the chunk with the hook annotation doesn't reach the prompt
+- question: How do I roll back a Helm release to a previous revision?
+  expected: [helm:helm/helm_rollback.md]
+- question: How do I define a reusable named template and include it?
+  expected: [helm:chart_template_guide/named_templates.md]
+- question: How do I write tests for a Helm chart?
+  expected: [helm:topics/chart_tests.md]
+- question: How do I push a chart to an OCI registry?
+  expected: [helm:topics/registries.mdx]
+- question: How do I restart pods automatically when a ConfigMap in my chart changes?
+  expected: [helm:howto/charts_tips_and_tricks.md]
+  must_include: [sha256sum]
+- question: Explain Helm hooks. How are they ordered, what is the default delete policy, and are hook resources removed by `helm uninstall`?
+  expected: [helm:topics/charts_hooks.md]
+  must_include: [hook-weight]
+  known_issue: the answer orders hooks by lifecycle phase, the hook weight chunk doesn't reach the prompt
+- question: Where does Helm store release state?
+  expected: [helm:topics/advanced.mdx]
+  must_include: [Secret]
+
+# Out of scope
+- question: What is the capital of France?
+  expected: []
+- question: How do I set up VPC peering between two AWS accounts?
+  expected: []
+- question: What is a good recipe for pancakes?
+  expected: []

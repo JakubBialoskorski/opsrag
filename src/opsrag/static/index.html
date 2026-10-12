@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>opsrag</title>
+<style>
+  /* Dark only: meant to be read at 3 AM during an incident, so no bright surfaces,
+     softened text instead of pure white, warm accent instead of blue */
+  :root {
+    --bg: #121316;
+    --panel: #1a1c20;
+    --code-bg: #0d0e10;
+    --border: #2b2e34;
+    --text: #d4d2cc;
+    --muted: #8d8b85;
+    --accent: #e0a85a;
+    --accent-text: #1a1307;
+    --error: #e58a7a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 18px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .layout { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; display: grid; gap: 32px; }
+  main { min-width: 0; }
+  h1 { font-size: 24px; margin: 0; font-weight: 600; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .sub { color: var(--muted); margin: 4px 0 28px; font-size: 16px; }
+
+  form { display: flex; gap: 10px; flex-wrap: wrap; }
+  input, button {
+    font: inherit;
+    font-size: 18px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+  }
+  input { flex: 1 1 360px; min-width: 0; }
+  input::placeholder { color: #6b6964; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    background: var(--accent);
+    color: var(--accent-text);
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: progress; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-top: 24px;
+  }
+  .status { color: var(--muted); font-size: 16px; }
+  .status.error { color: var(--error); }
+
+  #answer { overflow-wrap: anywhere; }
+  #answer p { margin: 0 0 12px; white-space: pre-wrap; }
+  #answer code {
+    font: 16px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 5px;
+  }
+  .code { position: relative; margin: 12px 0 16px; }
+  .code pre {
+    margin: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+  }
+  .code pre code { background: none; padding: 0; }
+  .copy {
+    position: absolute; top: 8px; right: 8px;
+    font-size: 14px; padding: 6px 12px; border-radius: 6px;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .cite { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+  h2 { font-size: 16px; color: var(--muted); font-weight: 600; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+  #sources { margin: 0; padding-left: 28px; }
+  #sources li { margin: 10px 0; }
+  #sources a { color: var(--accent); }
+  #sources .where { display: block; color: var(--muted); font-size: 15px; }
+  #sources li.unused { opacity: .45; }
+  .notice {
+    margin-top: 20px; padding: 14px 18px; border-radius: 10px;
+    border: 1px solid #5c4a2c; background: #221d15; font-size: 17px;
+  }
+  .notice.error { border-color: #6b3b33; background: #24171a; color: var(--error); }
+  .bar { height: 6px; margin-top: 10px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .bar div { height: 100%; background: var(--accent); transition: width .5s; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="layout">
+<main>
+  <header>
+    <h1>opsrag</h1>
+  </header>
+  <p class="sub">Kubernetes, Prometheus and Helm docs. Answers come only from the docs, with sources.</p>
+
+  <form id="form">
+    <input id="question" placeholder="e.g. how do I roll back a Deployment?" autocomplete="off" autofocus required>
+    <button id="ask">Ask</button>
+  </form>
+
+  <div class="notice" id="notice" hidden>
+    <div id="notice-text"></div>
+    <div class="bar" id="bar" hidden><div id="bar-fill"></div></div>
+  </div>
+
+  <section class="panel" id="answer-panel" hidden>
+    <div id="answer"></div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="panel" id="sources-panel" hidden>
+    <h2>Sources</h2>
+    <ol id="sources"></ol>
+  </section>
+</main>
+</div>
+
+<script type="module">
+import { escapeHtml, render } from "/static/render.mjs";
+
+const $ = (id) => document.getElementById(id);
+
+// Tells the user whether the app is ready: models present, index built or still being built
+async function refreshStatus() {
+  let status;
+  try {
+    status = await (await fetch("/api/status")).json();
+  } catch {
+    setTimeout(refreshStatus, 5000);
+    return;
+  }
+  let message = "";
+  let isError = false;
+  const p = status.indexing;
+  if (status.ollama === "unreachable") {
+    message = "Ollama is not reachable, so questions can't be answered. Check that it is running.";
+    isError = true;
+  } else if (status.ollama !== "ok") {
+    message = `Ollama is ${status.ollama}. Run ./start.sh to download them.`;
+    isError = true;
+  } else if (p) {
+    const ready = status.sources.length ? ` You can already ask about: ${status.sources.join(", ")}.` : "";
+    message = `Indexing ${p.source} docs: ${p.done} of ${p.total}, about ${p.minutes_left} min left.${ready}`;
+  } else if (!status.sources.length) {
+    message = "The documentation index is empty. Run ./start.sh to build it.";
+    isError = true;
+  } else if (status.reranker !== "ok") {
+    message = "The reranker is not downloaded, answers use plain search. Run ./start.sh to get it.";
+  }
+
+  $("notice").hidden = !message;
+  $("notice").classList.toggle("error", isError);
+  $("notice-text").textContent = message;
+  $("bar").hidden = !p;
+  if (p) $("bar-fill").style.width = `${Math.round((100 * p.done) / p.total)}%`;
+  if (message) setTimeout(refreshStatus, 5000);
+}
+refreshStatus();
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  // The Clipboard API only exists on https or localhost, not on http://<lan-ip>
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
+$("answer").addEventListener("click", async (event) => {
+  if (!event.target.classList.contains("copy")) return;
+  await copyText(event.target.nextElementSibling.textContent);
+  event.target.textContent = "Copied";
+  setTimeout(() => { event.target.textContent = "Copy"; }, 1500);
+});
+
+function showSources(sources) {
+  $("sources").innerHTML = sources.map((s) => {
+    const [page, ...section] = s.title.split(" > ");
+    return `<li id="src-${s.n}"><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(page)}</a>` +
+      `<span class="where">${escapeHtml(s.source)}${section.length ? " · " + escapeHtml(section.join(" › ")) : ""}</span></li>`;
+  }).join("");
+  $("sources-panel").hidden = sources.length === 0;
+}
+
+function markCited(cited) {
+  for (const li of $("sources").children) {
+    li.classList.toggle("unused", cited.length > 0 && !cited.includes(Number(li.id.slice(4))));
+  }
+}
+
+// One question is answered at a time, the others wait in line
+function queueText(ahead, eta) {
+  const people = ahead === 1 ? "1 question" : `${ahead} questions`;
+  if (eta === null) return `Waiting in line: ${people} ahead of yours.`;
+  const wait = eta < 60 ? "less than a minute" : `about ${Math.round(eta / 60)} min`;
+  return `Waiting in line: ${people} ahead of yours, ${wait}.`;
+}
+
+function setStatus(text, isError = false) {
+  $("status").textContent = text;
+  $("status").classList.toggle("error", isError);
+}
+
+$("form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("ask").disabled = true;
+  $("answer-panel").hidden = false;
+  $("sources-panel").hidden = true;
+  $("answer").innerHTML = "";
+  setStatus("Searching the docs…");
+  let text = "";
+  let sources = [];
+
+  try {
+    const response = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: $("question").value }),
+    });
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({}))).detail;
+      throw new Error(detail || `server returned ${response.status}`);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    // Server-Sent Events arrive as "data: {...}\n\n" blocks, possibly split across reads
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop();
+      for (const block of blocks) {
+        if (!block.startsWith("data: ")) continue;
+        const ev = JSON.parse(block.slice(6));
+        if (ev.type === "queue") {
+          setStatus(queueText(ev.ahead, ev.eta));
+        } else if (ev.type === "started") {
+          setStatus("Searching the docs…");
+        } else if (ev.type === "sources") {
+          sources = ev.sources;
+          showSources(sources);
+          setStatus("Writing the answer…");
+        } else if (ev.type === "token") {
+          text += ev.text;
+          $("answer").innerHTML = render(text, sources);
+        } else if (ev.type === "done") {
+          markCited(ev.cited);
+          const t = ev.timings;
+          if (t) setStatus(`search ${t.retrieve.toFixed(1)}s · rerank ${t.rerank.toFixed(1)}s · answer ${t.generate.toFixed(1)}s`);
+        } else if (ev.type === "error") {
+          setStatus(ev.message, true);
+        }
+      }
+    }
+  } catch (err) {
+    setStatus(`Request failed: ${err.message}`, true);
+  } finally {
+    $("ask").disabled = false;
+  }
+});
+</script>
+</body>
+</html>

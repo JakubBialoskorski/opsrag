@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+dist/
+# cloned documentation sources
+data/
+# local editor and tool settings
+.idea/

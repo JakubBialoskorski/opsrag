@@ -1,0 +1,44 @@
+# Documentation sources. `track` is either a branch or a tag pattern ("tags/v3.*").
+# Exact versions live in sources.lock.yaml, refresh them with `make update`.
+# `exclude` patterns are matched against paths relative to `root`.
+sources:
+  - name: helm
+    repo: https://github.com/helm/helm-www
+    track: main
+    root: docs
+    url: https://helm.sh/docs/{path}
+    exclude:
+      - changelog.md
+
+  - name: prometheus
+    repo: https://github.com/prometheus/prometheus
+    track: tags/v3.*
+    root: docs
+    url: https://prometheus.io/docs/prometheus/latest/{path}/
+    exclude:
+      # internal table of contents, not published
+      - index.md
+
+  - name: kubernetes
+    repo: https://github.com/kubernetes/website
+    # main always holds docs for the current Kubernetes release
+    track: main
+    root: content/en/docs
+    url: https://kubernetes.io/docs/{path}/
+    # kubernetes.io is built with Hugo, autoHeadingIDType = "blackfriday"
+    anchors: blackfriday
+    links:
+      # glossary entries are shown together on one page, not as pages of their own
+      - match: reference/glossary/*
+        url: https://kubernetes.io/docs/reference/glossary/?all=true#term-{id}
+    exclude:
+      # generated API and CLI references: huge and repetitive
+      - reference/kubernetes-api/*
+      - reference/config-api/*
+      - reference/kubectl/generated/*
+      - reference/command-line-tools-reference/*
+      - reference/instrumentation/*
+      - reference/setup-tools/kubeadm/generated/*
+      - doc-contributor-tools/*
+      - contribute/*
+      - test.md

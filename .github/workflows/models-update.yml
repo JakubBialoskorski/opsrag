@@ -1,0 +1,104 @@
+name: models-update
+
+# Every Friday: check whether the Ollama registry serves new versions of our models. If so,
+# download them, run the answer checks and open a pull request with the new models.lock.yaml.
+# If the new version fails the checks, this run fails and no pull request is opened.
+# Needs "Allow GitHub Actions to create and approve pull requests" in the repo settings.
+on:
+  schedule:
+    - cron: "0 6 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  BRANCH: auto/models-update
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: postgresql://opsrag:opsrag@localhost:5432/opsrag
+      OLLAMA_URL: http://localhost:11434
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      summary: ${{ steps.update.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      # Restore only: the cache key belongs to the current lock, newer models must not be saved under it
+      - name: Restore the currently pinned models
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/ollama
+          key: ollama-${{ hashFiles('models.lock.yaml') }}
+      - name: Start Postgres and Ollama
+        run: |
+          docker compose up -d --wait db
+          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama
+          until curl -sf localhost:11434/api/version; do sleep 1; done
+      - id: update
+        name: Look for new model versions, test them
+        run: |
+          if ! summary="$(uv run opsrag update-models --yes --source helm --source prometheus 2>&1)"; then
+            echo "$summary"
+            exit 1
+          fi
+          echo "$summary"
+          if git diff --quiet models.lock.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The pull request shows the old and new digests
+          change="$(git diff --unified=0 models.lock.yaml | grep -E '^[-+][a-z]')"
+          { echo "changed=true"; echo "summary<<EOF"; echo "$change"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -am "update pinned ollama models"
+          git push --force origin "$BRANCH"
+
+  quality:
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    uses: ./.github/workflows/quality.yml
+    with:
+      ref: auto/models-update
+
+  pull-request:
+    needs: [update, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        env:
+          SUMMARY: ${{ needs.update.outputs.summary }}
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "A new version of a pinned Ollama model is available and passed the answer checks",
+              "(- old digest, + new digest):",
+              "",
+              "```", process.env.SUMMARY, "```",
+              "",
+              `Quality checks passed on this branch: ${run}`,
+              "Merge it to pin the new version; then run `make update-models` on your own setup.",
+            ].join("\n");
+            const head = process.env.BRANCH;
+            const { data: repo } = await github.rest.repos.get(context.repo);
+            const { data: open } = await github.rest.pulls.list({
+              ...context.repo, head: `${context.repo.owner}:${head}`, state: "open",
+            });
+            if (open.length) {
+              await github.rest.pulls.update({ ...context.repo, pull_number: open[0].number, body });
+            } else {
+              await github.rest.pulls.create({
+                ...context.repo, head, base: repo.default_branch, title: "Update Ollama models", body,
+              });
+            }

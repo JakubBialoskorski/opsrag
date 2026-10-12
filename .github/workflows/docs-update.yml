@@ -1,0 +1,97 @@
+name: docs-update
+
+# Every Friday: bump the docs to their newest versions, run the quality checks (including all
+# links) on the result and open a pull request. Merging it is the only manual step.
+# Needs "Allow GitHub Actions to create and approve pull requests" in the repo settings.
+on:
+  schedule:
+    - cron: "0 6 * * 5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+env:
+  BRANCH: auto/docs-update
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      summary: ${{ steps.update.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - id: update
+        name: Resolve newest docs versions
+        run: |
+          summary="$(uv run opsrag update)"
+          echo "$summary"
+          if git diff --quiet sources.lock.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          { echo "changed=true"; echo "summary<<EOF"; echo "$summary"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -am "update documentation sources"
+          git push --force origin "$BRANCH"
+
+  quality:
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    uses: ./.github/workflows/quality.yml
+    with:
+      ref: auto/docs-update
+      check-links: true
+
+  pull-request:
+    needs: [update, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        env:
+          SUMMARY: ${{ needs.update.outputs.summary }}
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "Newer versions of the documentation are available:",
+              "",
+              "```", process.env.SUMMARY, "```",
+              "",
+              `Quality checks and the link check passed on this branch: ${run}`,
+              "Merge it to update the index; the image is rebuilt and checked again on main.",
+            ].join("\n");
+            const head = process.env.BRANCH;
+            const { data: repo } = await github.rest.repos.get(context.repo);
+            const { data: open } = await github.rest.pulls.list({
+              ...context.repo, head: `${context.repo.owner}:${head}`, state: "open",
+            });
+            if (open.length) {
+              await github.rest.pulls.update({ ...context.repo, pull_number: open[0].number, body });
+            } else {
+              await github.rest.pulls.create({
+                ...context.repo, head, base: repo.default_branch, title: "Update documentation", body,
+              });
+            }
+
+  # GitHub disables scheduled workflows in public repos after 60 days without activity.
+  # Re-enabling them on every run resets that timer, without dummy commits.
+  keepalive:
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            for (const workflow_id of ["docs-update.yml", "models-update.yml"]) {
+              await github.rest.actions.enableWorkflow({ ...context.repo, workflow_id });
+            }
