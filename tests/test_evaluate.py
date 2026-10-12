@@ -56,7 +56,7 @@ def test_judge_answer_checks_required_syntax():
     assert "offset" in judge_answer(case, "Use `metric[1h]` [1].", [1])
 
 
-def test_known_issues_are_reported_until_they_pass(tmp_path, monkeypatch):
+def test_known_issues_are_reported_but_never_fail(tmp_path, monkeypatch):
     monkeypatch.setattr("opsrag.evaluate.rerank.load", lambda settings: object())
     monkeypatch.setattr("opsrag.evaluate.score_retrieval", lambda *a: RetrievalScore("x", 1, 1))
     settings = Settings(_env_file=None, data_dir=tmp_path)
@@ -69,5 +69,5 @@ def test_known_issues_are_reported_until_they_pass(tmp_path, monkeypatch):
 
     monkeypatch.setattr("opsrag.evaluate.check_answer", lambda *a: None)
     lines = []
-    assert not run_checks(None, None, settings, [case], answers=True, log=lines.append)
-    assert any("remove its known_issue" in line for line in lines)
+    assert run_checks(None, None, settings, [case], answers=True, log=lines.append)
+    assert any("passes now" in line for line in lines)
