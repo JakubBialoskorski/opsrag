@@ -12,7 +12,8 @@ setup_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --quick) setup_args=(--source helm --source prometheus) ;;
-    *) fail "unknown option $1 (use --quick)" ;;
+    -h|--help) sed -n '2,5s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) fail "unknown option $1 (use --quick or --help)" ;;
   esac
   shift
 done
@@ -39,11 +40,20 @@ if [ ! -f .env ]; then
   say "Ollama will run: $([ "$mode" = docker ] && echo "in Docker" || echo "on this machine")"
 fi
 
-if ! grep -q '^COMPOSE_PROFILES=.*ollama' .env; then
-  curl -sf http://localhost:11434/api/version >/dev/null || fail "Ollama is not running on this machine.
-  macOS:  brew install ollama && brew services start ollama   (or https://ollama.com/download)
-  Linux:  set OLLAMA_HOST=0.0.0.0 for the Ollama service, so containers can reach it
+if ! grep -q '^COMPOSE_PROFILES=.*ollama' .env && ! curl -sf http://localhost:11434/api/version >/dev/null; then
+  if [ "$(uname)" != Darwin ]; then
+    fail "Ollama is not running on this machine.
+  Set OLLAMA_HOST=0.0.0.0 for the Ollama service, so containers can reach it.
   Or run Ollama in Docker instead: rm .env && OLLAMA_MODE=docker ./start.sh"
+  elif command -v ollama >/dev/null; then
+    fail "Ollama is installed but not running. Start it in another terminal, leave it open
+  and run ./start.sh again:
+    ollama serve"
+  else
+    fail "Ollama is not installed. Install it, start it in another terminal, leave it open
+  and run ./start.sh again:
+    brew install ollama && ollama serve      (or https://ollama.com/download)"
+  fi
 fi
 
 port="$(sed -n 's/^OPSRAG_PORT=//p' .env)"
