@@ -186,6 +186,13 @@ class Ollama:
         except httpx.HTTPError as e:
             raise OllamaError(f"Ollama is not reachable at {self.http.base_url}") from e
 
+    def reachable(self) -> bool:
+        try:
+            self._get("/api/version")
+        except OllamaError:
+            return False
+        return True
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = []
         for i in range(0, len(texts), EMBED_BATCH):

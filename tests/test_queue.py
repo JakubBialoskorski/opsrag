@@ -106,3 +106,23 @@ def test_closing_keepalive_stops_the_source():
     stream.close()
     time.sleep(0.1)
     assert len(produced) < 20
+
+
+@pytest.fixture
+def ollama_up(monkeypatch):
+    monkeypatch.setattr(web.Ollama, "reachable", lambda self: True)
+
+
+@pytest.mark.parametrize("question", ["", "   ", "a" * (web.MAX_QUESTION_CHARS + 1)])
+def test_empty_and_huge_questions_are_rejected(ollama_up, question):
+    response = web.ask(web.Question(question=question))
+    assert response.status_code == 400
+    assert web.answers.tickets == []
+
+
+def test_question_is_rejected_at_once_when_ollama_is_down(monkeypatch):
+    monkeypatch.setattr(web.Ollama, "reachable", lambda self: False)
+    response = web.ask(web.Question(question="how do I roll back?"))
+    assert response.status_code == 503
+    assert b"ollama serve" in response.body
+    assert web.answers.tickets == []
