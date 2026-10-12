@@ -36,7 +36,7 @@ jobs:
       - name: Start Postgres and Ollama
         run: |
           docker compose up -d --wait db
-          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama
+          docker run -d --name ollama -p 11434:11434 -v "$HOME/ollama:/root/.ollama" ollama/ollama:0.40.3
       - name: Build the image
         run: docker build -t opsrag:ci .
       # Answers on the demo compete with thousands of Kubernetes chunks: with only the Helm and
