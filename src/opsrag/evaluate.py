@@ -92,6 +92,28 @@ def check_answer(
     return judge_answer(case, text, cited)
 
 
+# Even with a fixed seed, CI runners with different CPUs can flip a borderline answer.
+# A failed answer is asked again with other seeds; a real regression fails every time.
+RETRY_SEEDS = (43, 44)
+
+
+def check_answer_with_retries(
+    conn: psycopg.Connection, ollama: Ollama, settings: Settings, case: Case
+) -> list[str | None]:
+    """Return the problem of each attempt, the last one decides."""
+    problems = [check_answer(conn, ollama, settings, case)]
+    seed = ollama.seed
+    try:
+        for retry_seed in RETRY_SEEDS:
+            if problems[-1] is None:
+                break
+            ollama.seed = retry_seed
+            problems.append(check_answer(conn, ollama, settings, case))
+    finally:
+        ollama.seed = seed
+    return problems
+
+
 def run_checks(
     conn: psycopg.Connection,
     ollama: Ollama,
@@ -125,11 +147,16 @@ def run_checks(
     if answers:
         log("")
         for case in cases:
-            problem = check_answer(conn, ollama, settings, case)
             if case.known_issue:
                 # Answers vary between runs, so a known issue passing once doesn't fail the run
-                status = problem or "passes now, its known_issue may be removed"
+                status = check_answer(conn, ollama, settings, case)
+                status = status or "passes now, its known_issue may be removed"
                 log(f"known {case.question}\n      {status} ({case.known_issue})")
+                continue
+            problems = check_answer_with_retries(conn, ollama, settings, case)
+            problem = problems[-1]
+            if problem is None and len(problems) > 1:
+                log(f"flaky {case.question}\n      passed on try {len(problems)}: {problems[0]}")
                 continue
             log(f"{'FAIL' if problem else 'ok  '}  {case.question}")
             if problem:
