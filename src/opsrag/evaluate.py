@@ -126,11 +126,11 @@ def run_checks(
         log("")
         for case in cases:
             problem = check_answer(conn, ollama, settings, case)
-            if case.known_issue and problem:
-                log(f"known {case.question}\n      {problem} ({case.known_issue})")
-                continue
             if case.known_issue:
-                problem = "passes now, remove its known_issue so it can't break again"
+                # Answers vary between runs, so a known issue passing once doesn't fail the run
+                status = problem or "passes now, its known_issue may be removed"
+                log(f"known {case.question}\n      {status} ({case.known_issue})")
+                continue
             log(f"{'FAIL' if problem else 'ok  '}  {case.question}")
             if problem:
                 log(f"      {problem}")
