@@ -7,6 +7,7 @@ set -euo pipefail
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
+warn() { printf '\n\033[33mWarning:\033[0m %s\n' "$*" >&2; }
 
 setup_args=()
 while [ $# -gt 0 ]; do
@@ -53,6 +54,16 @@ if ! grep -q '^COMPOSE_PROFILES=.*ollama' .env && ! curl -sf http://localhost:11
     fail "Ollama is not installed. Install it, start it in another terminal, leave it open
   and run ./start.sh again:
     brew install ollama && ollama serve      (or https://ollama.com/download)"
+  fi
+fi
+
+# Ollama on this machine can be any version, the answer checks in CI run on the one in docker-compose.yml
+if ! grep -q '^COMPOSE_PROFILES=.*ollama' .env; then
+  tested="$(docker compose --profile ollama config --images ollama | sed 's/^[^:]*:\([^@]*\).*/\1/')"
+  running="$(curl -sf http://localhost:11434/api/version | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' || true)"
+  if [ "$running" != "$tested" ]; then
+    warn "Ollama ${running:-?} runs on this machine, but the answers were tested on $tested,
+  so they can differ a bit. Ollama $tested: https://github.com/ollama/ollama/releases/tag/v$tested"
   fi
 fi
 
