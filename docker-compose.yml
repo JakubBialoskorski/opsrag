@@ -32,7 +32,7 @@ services:
       retries: 10
 
   app:
-    image: ghcr.io/jakubbialoskorski/opsrag:latest
+    image: ghcr.io/jakubbialoskorski/opsrag:${OPSRAG_VERSION:-latest}
     build: .
     restart: unless-stopped
     ports:

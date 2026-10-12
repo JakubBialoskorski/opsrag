@@ -78,3 +78,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # A version tag gets a GitHub release once its image is published, notes list the merged PRs
+  release:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const tag = context.ref.replace("refs/tags/", "");
+            const version = tag.replace(/^v/, "");
+            const image = `ghcr.io/${context.repo.owner.toLowerCase()}/opsrag:${version}`;
+            await github.rest.repos.createRelease({
+              ...context.repo,
+              tag_name: tag,
+              prerelease: version.includes("-"),
+              generate_release_notes: true,
+              body: [
+                `Image: \`${image}\``,
+                "",
+                "To go back to this release with its docs and models (the lock files come from the clone):",
+                `\`git checkout ${tag}\`, set \`OPSRAG_VERSION=${version}\` in .env, then run ./start.sh.`,
+                "",
+              ].join("\n"),
+            });
