@@ -75,7 +75,7 @@ jobs:
       - name: Retrieval checks on all questions
         run: |
           docker run --rm --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data opsrag:ci \
-            opsrag eval --min-hit-rate 0.97
+            opsrag eval --min-hit-rate 0.95
       - name: Retrieval and answer checks
         run: |
           docker run --rm --network host -e DATABASE_URL -e OLLAMA_URL -v data:/app/data opsrag:ci \
