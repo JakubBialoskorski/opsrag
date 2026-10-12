@@ -115,7 +115,7 @@
   <p class="sub">Kubernetes, Prometheus and Helm docs. Answers come only from the docs, with sources.</p>
 
   <form id="form">
-    <input id="question" placeholder="e.g. how do I roll back a Deployment?" autocomplete="off" autofocus required>
+    <input id="question" placeholder="e.g. how do I roll back a Deployment?" autocomplete="off" autofocus required maxlength="1000">
     <button id="ask">Ask</button>
   </form>
 
@@ -154,7 +154,7 @@ async function refreshStatus() {
   let isError = false;
   const p = status.indexing;
   if (status.ollama === "unreachable") {
-    message = "Ollama is not reachable, so questions can't be answered. Check that it is running.";
+    message = "Ollama is not running, so questions can't be answered. Start it with: ollama serve";
     isError = true;
   } else if (status.ollama !== "ok") {
     message = `Ollama is ${status.ollama}. Run ./start.sh to download them.`;

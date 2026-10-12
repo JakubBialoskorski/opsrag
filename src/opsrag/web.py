@@ -43,6 +43,11 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 answers = AnswerQueue()
 
 
+# Questions are short; a pasted log would only hold up the queue and overflow the models
+MAX_QUESTION_CHARS = 1000
+OLLAMA_DOWN = "Ollama is not running, so questions can't be answered. Start it with: ollama serve"
+
+
 class Question(BaseModel):
     question: str
 
@@ -177,7 +182,18 @@ def stream_answer(q: Question) -> Iterator[str]:
 
 @app.post("/api/ask", response_model=None)
 def ask(q: Question) -> StreamingResponse | JSONResponse:
+    question = q.question.strip()
+    if not question:
+        return JSONResponse({"detail": "Type a question first."}, 400)
+    if len(question) > MAX_QUESTION_CHARS:
+        detail = f"The question is too long, keep it under {MAX_QUESTION_CHARS} characters."
+        return JSONResponse({"detail": detail}, 400)
+    # Fail at once instead of queueing a question that can only end in an error
+    if not Ollama.from_settings(get_settings()).reachable():
+        return JSONResponse({"detail": OLLAMA_DOWN}, 503)
     if answers.full():
         return JSONResponse({"detail": "Too busy right now, try again in a few minutes."}, 503)
     # Server-Sent Events: the browser shows tokens as soon as the model produces them
-    return StreamingResponse(stream_answer(q), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_answer(Question(question=question)), media_type="text/event-stream"
+    )
