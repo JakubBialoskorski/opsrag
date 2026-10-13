@@ -63,7 +63,6 @@ def reset(conn: psycopg.Connection, dim: int) -> None:
     """Drop all indexed data and resize the vector column for a new embedding model."""
     conn.execute("TRUNCATE documents, meta CASCADE")
     conn.execute(f"ALTER TABLE chunks ALTER COLUMN embedding TYPE vector({int(dim)})")
-    conn.execute(f"ALTER TABLE questions ALTER COLUMN embedding TYPE vector({int(dim)}) USING NULL")
 
 
 def known_documents(conn: psycopg.Connection, source: str) -> dict[str, tuple[str, str]]:
