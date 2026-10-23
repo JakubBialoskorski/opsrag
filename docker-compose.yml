@@ -61,7 +61,7 @@ services:
   # Used when Ollama isn't installed on the host (COMPOSE_PROFILES=ollama, set by start.sh on Linux)
   ollama:
     # Bumped by Dependabot (.github/dependabot.yml), CI and start.sh read the version from here
-    image: ollama/ollama:0.40.3@sha256:adca95a12c2b386a8f9a995e7fa0600e187e3323b5e5522f5a6c3b1ec73eff99
+    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
     profiles: [ollama]
     restart: unless-stopped
     environment:
