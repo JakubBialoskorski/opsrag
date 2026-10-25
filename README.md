@@ -81,5 +81,6 @@ flowchart LR
 ```
 
 Every wrong answer that gets fixed becomes a new test question, so it can't come back. Every
-Friday two workflows look for newer docs and models and open a pull request when they find some.
+Friday two workflows look for newer docs and models, run the same checks on them and open a pull
+request when they find some. It merges itself once approved, and only if every check passed.
 
