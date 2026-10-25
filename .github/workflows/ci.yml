@@ -16,6 +16,10 @@ on:
         description: Commit to check, the image is then only built
         type: string
         required: true
+      check-links:
+        description: A broken link also fails this workflow and its "tests" check
+        type: boolean
+        default: false
 
 jobs:
   lint-test:
@@ -46,11 +50,12 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
 
-  # Links depend on the live docs sites, not on our code, so a page moved upstream must not block
-  # a release, only merging. A failure here is fixed by merging the weekly docs-update pull request.
+  # Links depend on the live docs sites, not on our code, so a page moved upstream must not block a
+  # release or a merge, except of the docs-update pull request. A failure is fixed by merging it.
   links:
     needs: lint-test
     runs-on: ubuntu-latest
+    continue-on-error: ${{ !inputs.check-links }}
     steps:
       - uses: actions/checkout@v7
         with:
