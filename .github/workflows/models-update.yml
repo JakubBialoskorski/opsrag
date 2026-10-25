@@ -101,7 +101,7 @@ jobs:
             await github.rest.repos.createCommitStatus({
               ...context.repo, sha: process.env.SHA, context: "tests", target_url: run,
               state: passed ? "success" : "failure",
-              description: passed ? "All CI checks passed" : "CI checks failed",
+              description: passed ? "CI checks passed" : "CI checks failed",
             });
             if (!passed) return;
             const body = [
@@ -110,7 +110,7 @@ jobs:
               "",
               "```", process.env.SUMMARY, "```",
               "",
-              `All CI checks passed on this commit: ${run}`,
+              `CI checks passed on this commit: ${run}`,
               "Approve it to pin the new version, it then merges itself;",
               "then run `make update-models` on your own setup.",
             ].join("\n");
