@@ -1,7 +1,8 @@
 name: models-update
 
 # Every Friday: check whether the Ollama registry serves new versions of our models. If so,
-# download them, run the answer checks and open a pull request with the new models.lock.yaml.
+# download them, run the answer checks and all CI checks, and open a pull request with the new
+# models.lock.yaml. Approving it is the only manual step, it then merges itself (automerge.yml).
 # If the new version fails the checks, this run fails and no pull request is opened.
 # A model that needs a newer Ollama fails here until Dependabot's bump of the image is merged.
 # Needs "Allow GitHub Actions to create and approve pull requests" in the repo settings.
@@ -13,6 +14,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  statuses: write
 
 env:
   BRANCH: auto/models-update
@@ -27,6 +29,7 @@ jobs:
     outputs:
       changed: ${{ steps.update.outputs.changed }}
       summary: ${{ steps.update.outputs.summary }}
+      sha: ${{ steps.update.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
@@ -65,32 +68,51 @@ jobs:
           git switch -c "$BRANCH"
           git commit -am "update pinned ollama models"
           git push --force origin "$BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  quality:
+  # The same checks as for any pull request, on this exact commit. Branch protection requires the
+  # "tests" check, which the pull-request job reports for this commit.
+  ci:
     needs: update
     if: needs.update.outputs.changed == 'true'
-    uses: ./.github/workflows/quality.yml
+    uses: ./.github/workflows/ci.yml
+    # Asked for by its image and release jobs, which neither push nor release from here
+    permissions:
+      contents: write
+      packages: write
     with:
-      ref: auto/models-update
+      ref: ${{ needs.update.outputs.sha }}
 
   pull-request:
-    needs: [update, quality]
+    needs: [update, ci]
+    if: always() && needs.update.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v9
         env:
           SUMMARY: ${{ needs.update.outputs.summary }}
+          SHA: ${{ needs.update.outputs.sha }}
+          RESULT: ${{ needs.ci.result }}
         with:
           script: |
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const passed = process.env.RESULT === "success";
+            // A failure also blocks a pull request left open from an earlier run, now on this commit
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: process.env.SHA, context: "tests", target_url: run,
+              state: passed ? "success" : "failure",
+              description: passed ? "All CI checks passed" : "CI checks failed",
+            });
+            if (!passed) return;
             const body = [
               "A new version of a pinned Ollama model is available and passed the answer checks",
               "(- old digest, + new digest):",
               "",
               "```", process.env.SUMMARY, "```",
               "",
-              `Quality checks passed on this branch: ${run}`,
-              "Merge it to pin the new version; then run `make update-models` on your own setup.",
+              `All CI checks passed on this commit: ${run}`,
+              "Approve it to pin the new version, it then merges itself;",
+              "then run `make update-models` on your own setup.",
             ].join("\n");
             const head = process.env.BRANCH;
             const { data: repo } = await github.rest.repos.get(context.repo);

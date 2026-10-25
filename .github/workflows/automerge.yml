@@ -1,0 +1,35 @@
+name: automerge
+
+# Merges a pull request of the weekly update workflows once the owner approves it. Branch
+# protection still refuses the merge until the "tests" check passed on its last commit.
+# GitHub's own auto-merge isn't used: enabled with GITHUB_TOKEN, its merge would start no
+# workflows, so the image on main would not be rebuilt. Here the merge starts ci.yml on main.
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.review.state == 'approved'
+      && github.event.pull_request.user.login == 'github-actions[bot]'
+      && startsWith(github.event.pull_request.head.ref, 'auto/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            // The approved commit, so nothing pushed after the review gets merged with it
+            await github.rest.pulls.merge({
+              ...context.repo, pull_number: pr.number, sha: context.payload.review.commit_id,
+              merge_method: "rebase",
+            });
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo, workflow_id: "ci.yml", ref: pr.base.ref,
+            });

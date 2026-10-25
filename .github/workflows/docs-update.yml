@@ -1,7 +1,7 @@
 name: docs-update
 
-# Every Friday: bump the docs to their newest versions, run the quality checks (including all
-# links) on the result and open a pull request. Merging it is the only manual step.
+# Every Friday: bump the docs to their newest versions, run all CI checks on the result and open
+# a pull request. Approving it is the only manual step, it then merges itself (automerge.yml).
 # Needs "Allow GitHub Actions to create and approve pull requests" in the repo settings.
 on:
   schedule:
@@ -12,6 +12,7 @@ permissions:
   actions: write
   contents: write
   pull-requests: write
+  statuses: write
 
 env:
   BRANCH: auto/docs-update
@@ -22,6 +23,7 @@ jobs:
     outputs:
       changed: ${{ steps.update.outputs.changed }}
       summary: ${{ steps.update.outputs.summary }}
+      sha: ${{ steps.update.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
@@ -43,32 +45,49 @@ jobs:
           git switch -c "$BRANCH"
           git commit -am "update documentation sources"
           git push --force origin "$BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  quality:
+  # The same checks as for any pull request, on this exact commit. Branch protection requires the
+  # "tests" check, which the pull-request job reports for this commit.
+  ci:
     needs: update
     if: needs.update.outputs.changed == 'true'
-    uses: ./.github/workflows/quality.yml
+    uses: ./.github/workflows/ci.yml
+    # Asked for by its image and release jobs, which neither push nor release from here
+    permissions:
+      contents: write
+      packages: write
     with:
-      ref: auto/docs-update
-      check-links: true
+      ref: ${{ needs.update.outputs.sha }}
 
   pull-request:
-    needs: [update, quality]
+    needs: [update, ci]
+    if: always() && needs.update.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v9
         env:
           SUMMARY: ${{ needs.update.outputs.summary }}
+          SHA: ${{ needs.update.outputs.sha }}
+          RESULT: ${{ needs.ci.result }}
         with:
           script: |
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const passed = process.env.RESULT === "success";
+            // A failure also blocks a pull request left open from an earlier run, now on this commit
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: process.env.SHA, context: "tests", target_url: run,
+              state: passed ? "success" : "failure",
+              description: passed ? "All CI checks passed" : "CI checks failed",
+            });
+            if (!passed) return;
             const body = [
               "Newer versions of the documentation are available:",
               "",
               "```", process.env.SUMMARY, "```",
               "",
-              `Quality checks and the link check passed on this branch: ${run}`,
-              "Merge it to update the index; the image is rebuilt and checked again on main.",
+              `All CI checks, including the link check, passed on this commit: ${run}`,
+              "Approve it to update the index, it then merges itself and the image is rebuilt on main.",
             ].join("\n");
             const head = process.env.BRANCH;
             const { data: repo } = await github.rest.repos.get(context.repo);
